@@ -31,6 +31,11 @@ type fakeStore struct {
 
 	list    []store.Doc
 	listErr error
+
+	deleteErr error
+
+	compactRes store.CompactResult
+	compactErr error
 }
 
 func (f *fakeStore) UpsertDoc(_ context.Context, _ store.Doc, _ []store.Chunk) (uuid.UUID, int, bool, error) {
@@ -42,6 +47,12 @@ func (f *fakeStore) GetDoc(_ context.Context, _ uuid.UUID) (store.Doc, error) {
 }
 func (f *fakeStore) ListDocs(_ context.Context, _ time.Time, _ uuid.UUID, _ int) ([]store.Doc, error) {
 	return f.list, f.listErr
+}
+func (f *fakeStore) DeleteDoc(_ context.Context, _ uuid.UUID) error {
+	return f.deleteErr
+}
+func (f *fakeStore) Compact(_ context.Context, _ int) (store.CompactResult, error) {
+	return f.compactRes, f.compactErr
 }
 
 // fakeEmbedder returns a fixed-length zero vector for each text.
@@ -235,6 +246,59 @@ func TestHandleGetDoc_BadID(t *testing.T) {
 	srv := newServer(&fakeStore{}, &fakeEmbedder{}, &fakeSearch{})
 	w := do(t, srv, "GET", "/v1/docs/not-a-uuid", nil)
 	if w.Code != 400 {
+		t.Fatalf("status %d", w.Code)
+	}
+}
+
+func TestHandleDeleteDoc_HappyPath(t *testing.T) {
+	srv := newServer(&fakeStore{}, &fakeEmbedder{}, &fakeSearch{})
+	w := do(t, srv, "DELETE", "/v1/docs/"+uuid.New().String(), nil)
+	if w.Code != 200 {
+		t.Fatalf("status %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleDeleteDoc_BadID(t *testing.T) {
+	srv := newServer(&fakeStore{}, &fakeEmbedder{}, &fakeSearch{})
+	w := do(t, srv, "DELETE", "/v1/docs/not-a-uuid", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status %d", w.Code)
+	}
+}
+
+func TestHandleDeleteDoc_NotFound(t *testing.T) {
+	srv := newServer(&fakeStore{deleteErr: store.ErrNotFound}, &fakeEmbedder{}, &fakeSearch{})
+	w := do(t, srv, "DELETE", "/v1/docs/"+uuid.New().String(), nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status %d", w.Code)
+	}
+}
+
+func TestHandleDeleteDoc_ServerError(t *testing.T) {
+	srv := newServer(&fakeStore{deleteErr: errors.New("boom")}, &fakeEmbedder{}, &fakeSearch{})
+	w := do(t, srv, "DELETE", "/v1/docs/"+uuid.New().String(), nil)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d", w.Code)
+	}
+}
+
+func TestHandleCompact_HappyPath(t *testing.T) {
+	srv := newServer(&fakeStore{compactRes: store.CompactResult{Tombstones: 3, ChunksDeleted: 12}}, &fakeEmbedder{}, &fakeSearch{})
+	w := do(t, srv, "POST", "/v1/admin/compact", nil)
+	if w.Code != 200 {
+		t.Fatalf("status %d", w.Code)
+	}
+	var resp compactResp
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.TombstonesProcessed != 3 || resp.ChunksDeleted != 12 {
+		t.Fatalf("envelope: %+v", resp)
+	}
+}
+
+func TestHandleCompact_ServerError(t *testing.T) {
+	srv := newServer(&fakeStore{compactErr: errors.New("nope")}, &fakeEmbedder{}, &fakeSearch{})
+	w := do(t, srv, "POST", "/v1/admin/compact", nil)
+	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status %d", w.Code)
 	}
 }

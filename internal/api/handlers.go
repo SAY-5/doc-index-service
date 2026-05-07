@@ -52,7 +52,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/index", s.handleIndex)
 	mux.HandleFunc("POST /v1/query", s.handleQuery)
 	mux.HandleFunc("GET /v1/docs/{id}", s.handleGetDoc)
+	mux.HandleFunc("DELETE /v1/docs/{id}", s.handleDeleteDoc)
 	mux.HandleFunc("GET /v1/docs", s.handleListDocs)
+	mux.HandleFunc("POST /v1/admin/compact", s.handleCompact)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	return Recoverer(RequestID(mux))
 }
@@ -295,4 +297,52 @@ func parseUUIDOrNil(s string) uuid.UUID {
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	WriteJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (s *Server) handleDeleteDoc(w http.ResponseWriter, r *http.Request) {
+	rid := RequestIDFrom(r.Context())
+	idStr := r.PathValue("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		WriteError(w, rid, BadRequest("invalid_id", "id is not a uuid"))
+		return
+	}
+	if err := s.Store.DeleteDoc(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			WriteError(w, rid, NotFound("not_found", "doc not found or already deleted"))
+			return
+		}
+		WriteError(w, rid, &APIError{
+			Status:  http.StatusInternalServerError,
+			Code:    "delete_failed",
+			Message: err.Error(),
+		})
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"id":      id.String(),
+		"deleted": true,
+	})
+}
+
+type compactResp struct {
+	TombstonesProcessed int `json:"tombstones_processed"`
+	ChunksDeleted       int `json:"chunks_deleted"`
+}
+
+func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
+	rid := RequestIDFrom(r.Context())
+	res, err := s.Store.Compact(r.Context(), 0)
+	if err != nil {
+		WriteError(w, rid, &APIError{
+			Status:  http.StatusInternalServerError,
+			Code:    "compact_failed",
+			Message: err.Error(),
+		})
+		return
+	}
+	WriteJSON(w, http.StatusOK, compactResp{
+		TombstonesProcessed: res.Tombstones,
+		ChunksDeleted:       res.ChunksDeleted,
+	})
 }

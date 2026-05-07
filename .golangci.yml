@@ -3,6 +3,8 @@ version: "2"
 run:
   timeout: 5m
   go: "1.22"
+  build-tags:
+    - integration
 
 linters:
   default: none

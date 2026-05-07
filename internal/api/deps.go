@@ -17,6 +17,8 @@ type DocStore interface {
 	UpsertDoc(ctx context.Context, d store.Doc, chunks []store.Chunk) (uuid.UUID, int, bool, error)
 	GetDoc(ctx context.Context, id uuid.UUID) (store.Doc, error)
 	ListDocs(ctx context.Context, after time.Time, afterID uuid.UUID, limit int) ([]store.Doc, error)
+	DeleteDoc(ctx context.Context, id uuid.UUID) error
+	Compact(ctx context.Context, batchSize int) (store.CompactResult, error)
 }
 
 // SearchEngine abstracts the search.Engine behind a tiny method set.

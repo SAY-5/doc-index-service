@@ -29,7 +29,7 @@ storage layer is Postgres 16 with `pgvector` and `tsvector`.
 
 | Path                         | Role                                                              |
 | ---------------------------- | ----------------------------------------------------------------- |
-| `cmd/server`                 | HTTP API: `/v1/index`, `/v1/query`, `/v1/docs/{id}`, `/v1/docs`   |
+| `cmd/server`                 | HTTP API: `/v1/index`, `/v1/query`, `/v1/docs/{id}`, `/v1/docs`, `/v1/admin/compact` |
 | `cmd/indexer`                | CLI bulk-loader; shares the upsert path with the HTTP server      |
 | `internal/api`               | Handlers, error envelope, request-id middleware, opaque cursor    |
 | `internal/store`             | `pgxpool` Postgres client and hand-rolled queries                 |
@@ -193,6 +193,26 @@ shrink it; the JSON schema lives in `bench/README.md`.
 ├── Makefile                    # entry points
 └── .github/workflows/ci.yml    # lint / typecheck / test / smoke / build
 ```
+
+## Incremental indexing
+
+`POST /v1/index` is idempotent on `sha256(body)`: replaying the same
+payload returns the existing doc id without writing duplicate chunks.
+
+`DELETE /v1/docs/{id}` soft-deletes the doc — `docs.deleted_at` is set
+and a row is written to `doc_tombstones`. Search paths (BM25 and
+vector) join against `docs` on `deleted_at IS NULL`, so tombstoned
+docs disappear from results without rebuilding any index. A second
+delete on the same id returns 404, matching standard idempotent-DELETE
+semantics.
+
+`POST /v1/admin/compact` walks pending tombstones in batches and
+deletes the underlying chunk rows, then marks each tombstone as
+compacted. The pgvector HNSW index reclaims space lazily as
+`doc_chunks` rows go away. The compactor is safe to run alongside
+indexing; tombstone insertion uses `SELECT ... FOR UPDATE` so a
+concurrent re-index of the same hash cannot leave a tombstone behind a
+still-live row.
 
 ## Reranking
 

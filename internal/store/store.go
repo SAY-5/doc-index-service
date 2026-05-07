@@ -25,6 +25,9 @@ type Doc struct {
 	Body        string
 	ContentHash string
 	CreatedAt   time.Time
+	// DeletedAt is non-nil when the doc has been soft-deleted via
+	// DELETE /v1/docs/{id}. Search paths skip these rows.
+	DeletedAt *time.Time
 }
 
 // Chunk mirrors doc_chunks. Embedding is stored as a []float32 in Go and
