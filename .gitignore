@@ -1,0 +1,32 @@
+# Go
+/bin/
+/dist/
+*.test
+*.out
+coverage.out
+coverage.html
+vendor/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+.coverage
+htmlcov/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Bench artefacts: keep the directory and committed result files,
+# but ignore stray ones from quick local runs.
+bench/results/*.tmp.json
