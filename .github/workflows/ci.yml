@@ -74,11 +74,11 @@ jobs:
             ./internal/seed/... \
             ./pkg/embed/...
           go tool cover -func=coverage.out | tail -n 1
-      - name: Coverage gate (>= 80%)
+      - name: Coverage gate (>= 85%)
         run: |
           pct=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}' | tr -d '%')
           echo "coverage: $pct%"
-          awk -v p="$pct" 'BEGIN{ if (p+0 < 80.0) { print "coverage below 80"; exit 1 } }'
+          awk -v p="$pct" 'BEGIN{ if (p+0 < 85.0) { print "coverage below 85"; exit 1 } }'
 
   test-py:
     runs-on: ubuntu-latest

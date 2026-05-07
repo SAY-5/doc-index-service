@@ -77,7 +77,7 @@ func (e *Engine) Query(ctx context.Context, q string, k int, mode Mode) ([]Resul
 	lists := make(map[string][]Hit)
 
 	if mode == ModeHybrid || mode == ModeKeyword {
-		bm, err := e.Store.SearchBM25(ctx, q, e.PerListLimit)
+		bm, err := e.Store.SearchBM25(ctx, SanitizeBM25Query(q), e.PerListLimit)
 		if err != nil {
 			return nil, fmt.Errorf("bm25: %w", err)
 		}

@@ -301,6 +301,89 @@ func TestRequestIDMiddleware_GeneratesWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestHandleIndex_PersistFailure(t *testing.T) {
+	st := &fakeStore{upsertErr: errors.New("db down")}
+	srv := newServer(st, &fakeEmbedder{}, &fakeSearch{})
+	w := do(t, srv, "POST", "/v1/index", map[string]string{
+		"source": "s", "title": "t", "body": "b",
+	})
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d", w.Code)
+	}
+}
+
+func TestHandleGetDoc_LookupFailure(t *testing.T) {
+	st := &fakeStore{getErr: errors.New("db blip")}
+	srv := newServer(st, &fakeEmbedder{}, &fakeSearch{})
+	w := do(t, srv, "GET", "/v1/docs/"+uuid.New().String(), nil)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d", w.Code)
+	}
+}
+
+func TestHandleListDocs_StoreError(t *testing.T) {
+	st := &fakeStore{listErr: errors.New("list down")}
+	srv := newServer(st, &fakeEmbedder{}, &fakeSearch{})
+	w := do(t, srv, "GET", "/v1/docs", nil)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d", w.Code)
+	}
+}
+
+func TestHandleListDocs_WithCursor(t *testing.T) {
+	enc, _ := EncodeCursor(Cursor{CreatedAt: time.Now(), ID: uuid.New().String()})
+	srv := newServer(&fakeStore{}, &fakeEmbedder{}, &fakeSearch{})
+	w := do(t, srv, "GET", "/v1/docs?cursor="+enc, nil)
+	if w.Code != 200 {
+		t.Fatalf("status %d", w.Code)
+	}
+}
+
+func TestParseUUIDOrNil(t *testing.T) {
+	if got := parseUUIDOrNil(""); got != uuid.Nil {
+		t.Fatalf("empty should be nil, got %s", got)
+	}
+	if got := parseUUIDOrNil("not-a-uuid"); got != uuid.Nil {
+		t.Fatalf("invalid should be nil, got %s", got)
+	}
+	want := uuid.New()
+	if got := parseUUIDOrNil(want.String()); got != want {
+		t.Fatalf("valid uuid mismatch: %s vs %s", got, want)
+	}
+}
+
+func TestEmbedBatched_Empty(t *testing.T) {
+	srv := newServer(&fakeStore{}, &fakeEmbedder{}, &fakeSearch{})
+	out, err := srv.embedBatched(context.Background(), nil)
+	if err != nil || out != nil {
+		t.Fatalf("empty input should be (nil,nil): out=%v err=%v", out, err)
+	}
+}
+
+func TestEmbedBatched_DefaultBatchSize(t *testing.T) {
+	srv := &Server{Store: &fakeStore{}, Embedder: &fakeEmbedder{}, Search: &fakeSearch{}, EmbedBatchSize: 0}
+	out, err := srv.embedBatched(context.Background(), []string{"a", "b", "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 3 {
+		t.Fatalf("expected 3 vectors, got %d", len(out))
+	}
+}
+
+func TestNewServer_Defaults(t *testing.T) {
+	// NewServer accepts a *store.Store (concrete type). Pass a nil pool —
+	// the constructor only reads the pointer, doesn't dial it; the
+	// handlers never run in this test.
+	srv := NewServer(nil, &fakeEmbedder{})
+	if srv.EmbedBatchSize != 32 {
+		t.Fatalf("default batch size %d", srv.EmbedBatchSize)
+	}
+	if srv.Search == nil {
+		t.Fatal("Search should be wired")
+	}
+}
+
 func TestRecoverer(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/boom", func(_ http.ResponseWriter, _ *http.Request) {

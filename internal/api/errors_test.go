@@ -50,3 +50,19 @@ func TestWriteError_PlainErrorBecomesInternal(t *testing.T) {
 		t.Fatalf("unexpected code: %v", env)
 	}
 }
+
+func TestAPIError_ErrorString(t *testing.T) {
+	e := BadRequest("invalid", "x")
+	if got := e.Error(); got != "invalid: x" {
+		t.Fatalf("Error() = %q", got)
+	}
+}
+
+func TestNotFoundAndConflictHelpers(t *testing.T) {
+	if NotFound("a", "b").Status != 404 {
+		t.Fatal("NotFound status")
+	}
+	if c := Conflict("a", "b"); c.Status != 409 || c.Retryable {
+		t.Fatalf("Conflict envelope wrong: %+v", c)
+	}
+}

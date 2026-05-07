@@ -129,3 +129,32 @@ func TestEngineQuery_EmbedErrorBubblesUp(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestEngineQuery_VectorBackendErrorBubblesUp(t *testing.T) {
+	be := &fakeBackend{vecErr: errors.New("hnsw down")}
+	eng := NewEngine(be, &fakeEmbedder{})
+	if _, err := eng.Query(context.Background(), "x", 1, ModeVector); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestEngineQuery_EmbedReturnsEmpty(t *testing.T) {
+	be := &fakeBackend{}
+	eng := NewEngine(be, &fakeEmbedder{out: [][]float32{}})
+	if _, err := eng.Query(context.Background(), "x", 1, ModeVector); err == nil {
+		t.Fatal("expected error from empty embed result")
+	}
+}
+
+func TestEngineQuery_DefaultsApplied(t *testing.T) {
+	be := &fakeBackend{bm: []store.Hit{mkHit(1, "x")}}
+	eng := &Engine{Store: be, Embedder: &fakeEmbedder{}}
+	// k <= 0 and PerListLimit <= 0 should fall back to defaults.
+	res, err := eng.Query(context.Background(), "x", 0, ModeKeyword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) == 0 {
+		t.Fatal("expected results")
+	}
+}

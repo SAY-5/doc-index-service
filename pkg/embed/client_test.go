@@ -91,3 +91,68 @@ func TestClient_Healthz(t *testing.T) {
 		t.Fatalf("health: %+v", h)
 	}
 }
+
+func TestClient_Embed_CountMismatch(t *testing.T) {
+	srv := newServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(embedResponse{
+			Embeddings: [][]float32{make([]float32, Dim)},
+			Model:      "x",
+			Dim:        Dim,
+		})
+	}))
+	c := New(srv.URL)
+	_, err := c.Embed(context.Background(), []string{"a", "b"})
+	if err == nil || !strings.Contains(err.Error(), "expected 2") {
+		t.Fatalf("expected count mismatch, got %v", err)
+	}
+}
+
+func TestClient_Embed_PerVectorLengthMismatch(t *testing.T) {
+	srv := newServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(embedResponse{
+			Embeddings: [][]float32{make([]float32, Dim-1)},
+			Model:      "x",
+			Dim:        Dim,
+		})
+	}))
+	c := New(srv.URL)
+	_, err := c.Embed(context.Background(), []string{"x"})
+	if err == nil || !strings.Contains(err.Error(), "vector 0") {
+		t.Fatalf("expected per-vector length error, got %v", err)
+	}
+}
+
+func TestClient_Embed_BadJSON(t *testing.T) {
+	srv := newServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("not json"))
+	}))
+	c := New(srv.URL)
+	_, err := c.Embed(context.Background(), []string{"x"})
+	if err == nil || !strings.Contains(err.Error(), "decode") {
+		t.Fatalf("expected decode error, got %v", err)
+	}
+}
+
+func TestClient_Healthz_Non200(t *testing.T) {
+	srv := newServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	c := New(srv.URL)
+	if _, err := c.Healthz(context.Background()); err == nil {
+		t.Fatal("expected non-200 error")
+	}
+}
+
+func TestClient_Healthz_TransportError(t *testing.T) {
+	c := New("http://127.0.0.1:1")
+	if _, err := c.Healthz(context.Background()); err == nil {
+		t.Fatal("expected transport error")
+	}
+}
+
+func TestClient_Embed_TransportError(t *testing.T) {
+	c := New("http://127.0.0.1:1")
+	if _, err := c.Embed(context.Background(), []string{"x"}); err == nil {
+		t.Fatal("expected transport error")
+	}
+}

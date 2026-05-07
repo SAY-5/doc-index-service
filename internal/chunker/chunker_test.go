@@ -70,6 +70,46 @@ func TestSplit_UnicodeSafe(t *testing.T) {
 	}
 }
 
+func TestSplit_DefaultOptionsApplied(t *testing.T) {
+	got := Split("hello world", Options{})
+	if len(got) != 1 || got[0].Text != "hello world" {
+		t.Fatalf("unexpected: %+v", got)
+	}
+}
+
+func TestSplit_NegativeOverlapClampedToZero(t *testing.T) {
+	body := strings.Repeat("a ", 500)
+	got := Split(body, Options{TargetChars: 200, MaxChars: 250, Overlap: -10})
+	if len(got) < 2 {
+		t.Fatalf("expected multi-chunk")
+	}
+}
+
+func TestSplit_OverlapTooLargeClampedToQuarter(t *testing.T) {
+	body := strings.Repeat("a ", 500)
+	got := Split(body, Options{TargetChars: 200, MaxChars: 250, Overlap: 9999})
+	if len(got) < 2 {
+		t.Fatalf("expected multi-chunk")
+	}
+}
+
+func TestSplit_MaxBelowTargetClampedUp(t *testing.T) {
+	got := Split("short body", Options{TargetChars: 500, MaxChars: 50})
+	if len(got) != 1 {
+		t.Fatalf("expected single chunk, got %d", len(got))
+	}
+}
+
+func TestSplit_NoBoundaryFallsToHardCut(t *testing.T) {
+	// A long block with no spaces or sentence terminators forces the
+	// hard-cut branch.
+	body := strings.Repeat("x", 2500)
+	got := Split(body, Options{TargetChars: 500, MaxChars: 600, Overlap: 50})
+	if len(got) < 4 {
+		t.Fatalf("expected at least 4 chunks, got %d", len(got))
+	}
+}
+
 func TestSplit_OverlapSane(t *testing.T) {
 	body := strings.Repeat("word ", 300)
 	got := Split(body, Options{TargetChars: 200, MaxChars: 250, Overlap: 50})
