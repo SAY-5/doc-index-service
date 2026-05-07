@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/SAY-5/doc-index-service/internal/chunker"
+	"github.com/SAY-5/doc-index-service/internal/rerank"
 	"github.com/SAY-5/doc-index-service/internal/search"
 	"github.com/SAY-5/doc-index-service/internal/store"
 	"github.com/SAY-5/doc-index-service/pkg/embed"
@@ -30,11 +31,17 @@ type Server struct {
 }
 
 // NewServer wires defaults against the concrete store and embedder.
-func NewServer(s *store.Store, e embed.Embedder) *Server {
+// The reranker argument is optional; nil means rerank-flagged queries
+// transparently fall back to plain hybrid.
+func NewServer(s *store.Store, e embed.Embedder, r rerank.Reranker) *Server {
+	eng := search.NewEngine(s, e)
+	if r != nil {
+		eng = eng.WithReranker(r)
+	}
 	return &Server{
 		Store:          s,
 		Embedder:       e,
-		Search:         search.NewEngine(s, e),
+		Search:         eng,
 		EmbedBatchSize: 32,
 	}
 }

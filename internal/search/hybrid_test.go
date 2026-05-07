@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/SAY-5/doc-index-service/internal/rerank"
 	"github.com/SAY-5/doc-index-service/internal/store"
 )
 
@@ -143,6 +144,103 @@ func TestEngineQuery_EmbedReturnsEmpty(t *testing.T) {
 	eng := NewEngine(be, &fakeEmbedder{out: [][]float32{}})
 	if _, err := eng.Query(context.Background(), "x", 1, ModeVector); err == nil {
 		t.Fatal("expected error from empty embed result")
+	}
+}
+
+// fixedReranker assigns scores by ChunkID lookup, so tests can pin the
+// exact top-1 outcome.
+type fixedReranker struct {
+	byID map[string]float64
+	err  error
+}
+
+func (f *fixedReranker) Rerank(_ context.Context, _ string, cands []rerank.Candidate, topN int) ([]rerank.Scored, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]rerank.Scored, 0, len(cands))
+	for _, c := range cands {
+		score := f.byID[c.ChunkID]
+		out = append(out, rerank.Scored{Candidate: c, RerankScore: score})
+	}
+	// Stable bubble: highest score first, prior-rank tie break.
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j].RerankScore > out[j-1].RerankScore; j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+	if topN > 0 && len(out) > topN {
+		out = out[:topN]
+	}
+	return out, nil
+}
+
+// TestEngineQuery_RerankChangesTop1 asserts that on a synthetic case
+// where the reranker scores the second fused candidate highest, the
+// returned top-1 doc id flips.
+func TestEngineQuery_RerankChangesTop1(t *testing.T) {
+	id1, id2 := uuid.New(), uuid.New()
+	bm := []store.Hit{
+		{ChunkID: id1, DocID: uuid.New(), Snippet: "first"},
+		{ChunkID: id2, DocID: uuid.New(), Snippet: "second"},
+	}
+	be := &fakeBackend{bm: bm}
+	eng := NewEngine(be, &fakeEmbedder{}).WithReranker(&fixedReranker{
+		byID: map[string]float64{
+			id1.String(): 0.1,
+			id2.String(): 0.9, // promote the underdog
+		},
+	})
+
+	// Without rerank, id1 would win because RRF respects the BM25 order.
+	plain, err := eng.Query(context.Background(), "x", 10, ModeHybrid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain[0].ChunkID != id1.String() {
+		t.Fatalf("plain hybrid: want %s, got %s", id1, plain[0].ChunkID)
+	}
+
+	// With rerank, the order flips.
+	reranked, err := eng.Query(context.Background(), "x", 10, ModeHybridRerank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reranked[0].ChunkID != id2.String() {
+		t.Fatalf("reranked: want %s, got %s", id2, reranked[0].ChunkID)
+	}
+	// The signals envelope should expose both the prior RRF score and
+	// the rerank score so a downstream client can debug.
+	if _, ok := reranked[0].Signals["rerank"]; !ok {
+		t.Fatalf("missing rerank signal: %+v", reranked[0].Signals)
+	}
+	if _, ok := reranked[0].Signals["rrf"]; !ok {
+		t.Fatalf("missing rrf signal: %+v", reranked[0].Signals)
+	}
+}
+
+// TestEngineQuery_RerankFallsBackWhenUnconfigured asserts that asking
+// for rerank without a Reranker installed degrades to plain hybrid
+// rather than failing the request.
+func TestEngineQuery_RerankFallsBackWhenUnconfigured(t *testing.T) {
+	id1 := uuid.New()
+	be := &fakeBackend{bm: []store.Hit{{ChunkID: id1, DocID: uuid.New(), Snippet: "x"}}}
+	eng := NewEngine(be, &fakeEmbedder{})
+	res, err := eng.Query(context.Background(), "x", 10, ModeHybridRerank)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || res[0].ChunkID != id1.String() {
+		t.Fatalf("expected fallback to plain hybrid, got %+v", res)
+	}
+}
+
+func TestEngineQuery_RerankErrorBubblesUp(t *testing.T) {
+	id1 := uuid.New()
+	be := &fakeBackend{bm: []store.Hit{{ChunkID: id1, DocID: uuid.New(), Snippet: "x"}}}
+	eng := NewEngine(be, &fakeEmbedder{}).WithReranker(&fixedReranker{err: errors.New("model offline")})
+	if _, err := eng.Query(context.Background(), "x", 10, ModeHybridRerank); err == nil {
+		t.Fatal("expected error from reranker")
 	}
 }
 

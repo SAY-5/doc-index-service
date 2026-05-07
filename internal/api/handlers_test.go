@@ -158,6 +158,17 @@ func TestHandleIndex_EmbedFailure(t *testing.T) {
 	}
 }
 
+func TestHandleQuery_AcceptsRerankMode(t *testing.T) {
+	results := []search.Result{
+		{DocID: "d1", ChunkID: "c1", Score: 0.9, Snippet: "s", Signals: map[string]float64{"rrf": 0.1, "rerank": 0.9}},
+	}
+	srv := newServer(&fakeStore{}, &fakeEmbedder{}, &fakeSearch{results: results})
+	w := do(t, srv, "POST", "/v1/query", map[string]any{"q": "x", "mode": "hybrid+rerank"})
+	if w.Code != 200 {
+		t.Fatalf("status %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleQuery_HappyPath(t *testing.T) {
 	results := []search.Result{
 		{DocID: "d1", ChunkID: "c1", Score: 0.5, Snippet: "s", Signals: map[string]float64{"bm25": 1, "vector": 0.9}},
@@ -375,7 +386,7 @@ func TestNewServer_Defaults(t *testing.T) {
 	// NewServer accepts a *store.Store (concrete type). Pass a nil pool —
 	// the constructor only reads the pointer, doesn't dial it; the
 	// handlers never run in this test.
-	srv := NewServer(nil, &fakeEmbedder{})
+	srv := NewServer(nil, &fakeEmbedder{}, nil)
 	if srv.EmbedBatchSize != 32 {
 		t.Fatalf("default batch size %d", srv.EmbedBatchSize)
 	}

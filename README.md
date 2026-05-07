@@ -34,6 +34,7 @@ storage layer is Postgres 16 with `pgvector` and `tsvector`.
 | `internal/api`               | Handlers, error envelope, request-id middleware, opaque cursor    |
 | `internal/store`             | `pgxpool` Postgres client and hand-rolled queries                 |
 | `internal/search`            | Hybrid search: BM25 + vector candidates, reciprocal rank fusion   |
+| `internal/rerank`            | Optional cross-encoder rerank stage; heuristic fallback in CI     |
 | `internal/chunker`           | Unicode-safe text chunker with sentence-boundary preference       |
 | `internal/seed`              | Deterministic synthetic-doc generator and query workload          |
 | `pkg/embed`                  | Go HTTP client for the embedding sidecar                          |
@@ -193,11 +194,37 @@ shrink it; the JSON schema lives in `bench/README.md`.
 └── .github/workflows/ci.yml    # lint / typecheck / test / smoke / build
 ```
 
+## Reranking
+
+`/v1/query` accepts an optional `mode=hybrid+rerank` flag. The hybrid
+fusion stage runs as before, but instead of returning the top-k fused
+candidates directly, the engine forwards the top-20 to a Reranker:
+
+* `HeuristicReranker` (the default) — pure-Go token-overlap with a
+  length penalty. No model download, runs in CI, sub-millisecond cost.
+* `CrossEncoderReranker` — calls the sidecar's `POST /rerank`, which
+  loads `cross-encoder/ms-marco-MiniLM-L-6-v2` (≈80 MB) and scores
+  `(query, passage)` pairs jointly.
+
+Selection happens once at server start via `RERANKER_KIND`:
+
+```sh
+RERANKER_KIND=heuristic       # default; in-process
+RERANKER_KIND=cross-encoder   # routes to sidecar /rerank
+RERANKER_KIND=off             # rerank-flagged queries fall back to plain hybrid
+```
+
+Trade-off: the cross-encoder adds ~50-200 ms per query in exchange for
+a measurable top-1 precision lift on hybrid queries where RRF is
+"directionally right but ranks the wrong chunk first." Use the heuristic
+when you can't afford that latency or you're in CI.
+
+The rerank flag is back-compat: `mode=hybrid` (the default) still does
+plain RRF and is unchanged.
+
 ## What this is *not*
 
 * Not an LLM. There is no generation, no answer synthesis, no chat path.
-* No learned reranker. The fusion is purely RRF; a cross-encoder rerank
-  step is an obvious next move but is out of scope.
 * No live web crawl. Documents arrive only through `POST /v1/index`.
 * No auth. Single-tenant, trusted clients only. Adding API keys is
   cheap; multi-tenancy at the schema level is not.

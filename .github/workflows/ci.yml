@@ -70,6 +70,7 @@ jobs:
           go test -race -covermode=atomic -coverprofile=coverage.out \
             ./internal/api/... \
             ./internal/chunker/... \
+            ./internal/rerank/... \
             ./internal/search/... \
             ./internal/seed/... \
             ./pkg/embed/...

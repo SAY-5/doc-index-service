@@ -35,7 +35,7 @@ test-go: ## Run Go unit tests
 
 .PHONY: test-go-cover
 test-go-cover: ## Run Go tests with coverage
-	$(GO) test -race -covermode=atomic -coverprofile=coverage.out ./internal/... ./pkg/...
+	$(GO) test -race -covermode=atomic -coverprofile=coverage.out ./internal/... ./pkg/... ./cmd/bench-regress/...
 	$(GO) tool cover -func=coverage.out | tail -n 1
 
 .PHONY: test-py

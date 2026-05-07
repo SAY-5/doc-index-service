@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/SAY-5/doc-index-service/internal/api"
+	"github.com/SAY-5/doc-index-service/internal/rerank"
 	"github.com/SAY-5/doc-index-service/internal/store"
 	"github.com/SAY-5/doc-index-service/pkg/embed"
 )
@@ -38,7 +39,22 @@ func run() error {
 	defer s.Close()
 
 	emb := embed.New(embedURL)
-	server := api.NewServer(s, emb)
+
+	// Reranker selection: RERANKER_KIND=cross-encoder routes /v1/query
+	// rerank flags through the sidecar; "heuristic" (the default) keeps
+	// everything in-process and is what CI exercises. "off" disables
+	// rerank entirely so the server falls back to plain hybrid even when
+	// clients ask for it.
+	var reranker rerank.Reranker
+	switch getenv("RERANKER_KIND", "heuristic") {
+	case "off":
+		reranker = nil
+	case "cross-encoder":
+		reranker = rerank.NewCrossEncoderReranker(embedURL)
+	default:
+		reranker = rerank.NewHeuristicReranker()
+	}
+	server := api.NewServer(s, emb, reranker)
 
 	srv := &http.Server{
 		Addr:              addr,
