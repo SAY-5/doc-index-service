@@ -82,12 +82,19 @@ seed: ## Insert 1k synthetic docs through the indexer
 	$(GO) run ./cmd/indexer -n 1000 -workers 4 -seed 42
 
 .PHONY: bench
-bench: ## Run the benchmark harness (50k docs, 1k queries by default)
-	$(GO) run ./bench -docs 50000 -queries 1000
+bench: ## Run the benchmark harness (200k docs, 1k queries by default)
+	$(GO) run ./bench -docs 200000 -queries 1000
 
 .PHONY: bench-smoke
 bench-smoke: ## Tiny bench, used by CI
 	$(GO) run ./bench -docs 1000 -queries 100 -smoke
+
+.PHONY: bench-regress
+bench-regress: ## Compare two bench JSONs; fails when any metric drifts > $(TOL)
+	@if [ -z "$(BASELINE)" ] || [ -z "$(FRESH)" ]; then \
+		echo "usage: make bench-regress BASELINE=path/to/baseline.json FRESH=path/to/fresh.json [TOL=0.30]"; exit 2; \
+	fi
+	$(GO) run ./cmd/bench-regress -baseline "$(BASELINE)" -fresh "$(FRESH)" -tol $${TOL:-0.30}
 
 .PHONY: embed-up
 embed-up: $(VENV)/.installed ## Start the embed sidecar locally on :8088

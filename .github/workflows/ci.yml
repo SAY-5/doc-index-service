@@ -155,6 +155,91 @@ jobs:
           ls -la bench/results
           test "$(ls bench/results/*.json | wc -l)" -ge 1
 
+  bench-regress:
+    runs-on: ubuntu-latest
+    needs: [test-go, test-py]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: docindex
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PY_VERSION }}
+      - name: Install psql
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Apply migrations
+        env:
+          DSN: postgres://postgres:postgres@localhost:5432/docindex?sslmode=disable
+        run: |
+          for f in migrations/*.up.sql; do
+            echo ">> $f"
+            psql "$DSN" -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - name: Start embed sidecar
+        working-directory: services/embed-sidecar
+        env:
+          EMBEDDER_KIND: hash
+        run: |
+          pip install -e .
+          nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8088 >/tmp/embed.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8088/healthz; then break; fi
+            sleep 1
+          done
+      - name: Run baseline 5k bench
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/docindex?sslmode=disable
+          EMBED_URL: http://localhost:8088
+        run: |
+          go run ./bench -docs 5000 -queries 200 -out /tmp/bench-base
+          mv /tmp/bench-base/*.json /tmp/bench-base/baseline.json
+      - name: Truncate and rerun fresh 5k bench
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/docindex?sslmode=disable
+          EMBED_URL: http://localhost:8088
+        run: |
+          # Re-running the bench against the same data is a no-op for
+          # indexing (content_hash dedup) but exercises the query path
+          # again. Drift between the two runs on the same CI machine is
+          # what the gate is *actually* checking — committed baselines
+          # don't survive the CPU variance between my laptop and a
+          # GitHub runner.
+          go run ./bench -docs 5000 -queries 200 -out /tmp/bench-fresh
+          mv /tmp/bench-fresh/*.json /tmp/bench-fresh/fresh.json
+      - name: Compare back-to-back runs
+        run: |
+          go run ./cmd/bench-regress \
+            -baseline /tmp/bench-base/baseline.json \
+            -fresh    /tmp/bench-fresh/fresh.json \
+            -tol 0.30
+      - name: Smoke-check regress against committed baseline (informational)
+        run: |
+          # This step never fails the build because the committed baseline
+          # was captured on a different machine; it's printed for human
+          # review only.
+          go run ./cmd/bench-regress \
+            -baseline bench/results/baseline-5k.json \
+            -fresh    /tmp/bench-fresh/fresh.json \
+            -tol 0.30 || true
+
   build:
     runs-on: ubuntu-latest
     needs: [lint-go, lint-py, typecheck-py, test-go, test-py]

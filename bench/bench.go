@@ -66,7 +66,7 @@ func main() {
 
 func run() error {
 	var (
-		docs      = flag.Int("docs", 50000, "number of synthetic docs to index")
+		docs      = flag.Int("docs", 200000, "number of synthetic docs to index")
 		queries   = flag.Int("queries", 1000, "number of queries per mode")
 		workers   = flag.Int("workers", 8, "concurrent indexers")
 		batch     = flag.Int("batch", 32, "embed batch size")

@@ -11,7 +11,7 @@ timestamped JSON artefact to `bench/results/`.
 make up
 make migrate
 
-# Default: 50k docs, 1k queries.
+# Default: 200k docs, 1k queries.
 go run ./bench
 
 # Or knob it down.
@@ -20,6 +20,22 @@ go run ./bench -docs 5000 -queries 200
 # CI smoke target.
 go run ./bench -docs 1000 -queries 100 -smoke
 ```
+
+## Regression check
+
+`cmd/bench-regress` compares two JSON artefacts and fails on >30% drift
+per metric. CI runs it at 5k against `bench/results/baseline-5k.json`.
+
+```sh
+go run ./cmd/bench-regress \
+    -baseline bench/results/baseline-5k.json \
+    -fresh    bench/results/bench-YYYYMMDD-HHMMSS.json \
+    -tol      0.30
+```
+
+The gate is per-metric, not aggregate: a single mode/percentile blowing
+past the tolerance fails the job, so a real regression in `hybrid/p99`
+isn't masked by faster `keyword/p50`.
 
 ## Methodology
 

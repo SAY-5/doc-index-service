@@ -1,0 +1,44 @@
+{
+  "started_at": "2026-05-07T22:24:16.616193Z",
+  "completed_at": "2026-05-07T22:24:33.211095Z",
+  "docs": 5000,
+  "queries": 200,
+  "workers": 8,
+  "embedder": "hash-bag-384",
+  "index_docs_per_sec": 395.8135369633671,
+  "index_chunks_per_sec": 990.0088186527738,
+  "index_wall_seconds": 12.632210708,
+  "modes": [
+    {
+      "mode": "keyword",
+      "n": 200,
+      "p50_ms": 8.139,
+      "p95_ms": 15.187,
+      "p99_ms": 23.84,
+      "p999_ms": 24.505,
+      "max_ms": 24.505
+    },
+    {
+      "mode": "vector",
+      "n": 200,
+      "p50_ms": 2.045,
+      "p95_ms": 2.469,
+      "p99_ms": 2.776,
+      "p999_ms": 5.069,
+      "max_ms": 5.069
+    },
+    {
+      "mode": "hybrid",
+      "n": 200,
+      "p50_ms": 11.032,
+      "p95_ms": 17.732,
+      "p99_ms": 26.155,
+      "p999_ms": 27.315,
+      "max_ms": 27.315
+    }
+  ],
+  "host": "Sais-MacBook-Pro.local",
+  "go_version": "go1.26.2",
+  "goos": "darwin",
+  "goarch": "arm64"
+}

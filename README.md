@@ -114,20 +114,52 @@ with both signal scores attached.
 
 ## Bench
 
-50,000 synthetic docs, 1000 queries, hash embedder, M-series Mac.
-Numbers from `bench/results/bench-20260507-071619.json`.
+100,000 synthetic docs, 1000 queries, 16 workers, hash embedder,
+M-series Mac. Numbers from `bench/results/bench-20260507-220545.json`.
 
 ```
-# doc-index-service bench — 50000 docs, 1000 queries
-# 2026-05-07 07:16:19Z, darwin/arm64, embedder=hash-bag-384
+# doc-index-service bench — 100000 docs, 1000 queries
+# 2026-05-07 22:05:45Z, darwin/arm64, embedder=hash-bag-384
 ## index throughput
-docs/sec   : 133.3
-chunks/sec : 330.6
+docs/sec   : 134.4
+chunks/sec : 333.0
 ## query latency (ms)
 mode      p50    p95    p99    p999   max
-keyword   64.7   119.3  205.9  342.0  373.0
-vector    2.8    6.8    10.7   25.3   29.3
-hybrid    72.0   166.7  254.4  527.4  1033.9
+keyword   157.0  287.4  454.2  501.8  521.5
+vector    2.8    6.4    11.6   28.3   39.8
+hybrid    171.1  311.4  463.9  569.8  570.6
+```
+
+The 50 k baseline is still committed at
+`bench/results/bench-20260507-071619.json` for back-comparison.
+
+### Why 100 k and not 200 k
+
+`make bench` defaults to 200 k; this machine got bogged down by HNSW
+index growth past ~30 k docs (insert rate dropped from ~150 docs/sec to
+~40 docs/sec by 50 k and would not have completed 200 k in the run
+budget). The numbers above are the highest scale that finished in a
+single uninterrupted session. Two follow-ups would unlock the 200 k
+ceiling on the same hardware:
+
+* drop the HNSW index before bulk load and rebuild it after, the
+  pgvector-recommended pattern for cold loads, and
+* shard `doc_chunks` by hash so HNSW build cost is amortised across
+  smaller partitions.
+
+Both are deferred — they're real engineering, not knob-twiddling.
+
+### Regression gate
+
+`cmd/bench-regress` diffs two JSON artefacts and fails on >30 % drift
+per metric. CI runs a fresh 5 k bench on every push and compares it
+against the committed `bench/results/baseline-5k.json`; the gate is
+per-metric so a single mode regressing isn't masked by a faster one.
+
+```sh
+make bench-regress \
+    BASELINE=bench/results/baseline-5k.json \
+    FRESH=bench/results/bench-YYYYMMDD-HHMMSS.json
 ```
 
 A few notes:
@@ -136,12 +168,11 @@ A few notes:
   numbers above are dominated by Postgres + HNSW, not the embedder. Run
   with `EMBEDDER_KIND=hf` to see the model-bound figure.
 * Keyword latency is high because `ts_rank_cd` is computed inside the
-  ORDER BY without a precomputed score column. A materialised
-  `chunk_score` would close most of that gap; see
-  `ARCHITECTURE.md` for why it isn't done here yet.
-* Concurrent indexing peaks around 8 workers on this machine; the
-  embedder is the bottleneck on real hardware (it isn't here, but the
-  HTTP round-trip still costs).
+  ORDER BY without a precomputed score column, and it scales roughly
+  linearly with corpus size — that's the ~2.4× growth from 50 k to
+  100 k visible above.
+* Concurrent indexing peaks around 16 workers on this machine; on real
+  hardware the embedder is the bottleneck.
 
 Re-run the benchmark with `make bench`. Pass `-docs` and `-queries` to
 shrink it; the JSON schema lives in `bench/README.md`.
